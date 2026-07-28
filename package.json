@@ -1,0 +1,33 @@
+{
+  "name": "susp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Synthetic User Simulation Platform — plataforma central de usuarios sintéticos para pruebas, demos y simulaciones con IA.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/usi-spec",
+    "packages/sdk",
+    "packages/usi-server",
+    "packages/usi-conformance",
+    "packages/personas",
+    "apps/engine",
+    "apps/reference-app",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "engine:dev": "npm --workspace @susp/engine run start:dev",
+    "engine:test": "npm --workspace @susp/engine run test",
+    "dashboard:dev": "npm --workspace @susp/dashboard run dev",
+    "reference:dev": "npm --workspace @susp/reference-app run start",
+    "conformance": "npm --workspace @susp/usi-conformance run cli --",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "infra:logs": "docker compose -f infra/docker-compose.yml logs -f"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

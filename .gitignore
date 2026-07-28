@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Entorno — nunca commitear secretos
+.env
+.env.*
+!.env.example
+
+# Prisma
+apps/engine/prisma/*.db
+apps/engine/prisma/migrations/dev.db*
+
+# Logs y temporales
+*.log
+npm-debug.log*
+coverage/
+.nyc_output/
+.cache/
+tmp/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Datos de simulación exportados localmente
+exports/
