@@ -14,9 +14,10 @@ después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 9 — documentación.
-- **Próximo paso concreto:** README de cada paquete, guía de integración paso a
-  paso para una app Flutter+Supabase, referencia del SDK y `docs/SEGURIDAD.md`.
+- **Fase en curso:** Fase 10 — despliegue (Dockerfiles y CI).
+- **Próximo paso concreto:** Dockerfiles multi-stage para motor y dashboard,
+  compose de producción y workflow de CI **sin** `upload-artifact`, porque la
+  cuota de Actions de la cuenta está agotada.
 - **Todo se verifica con un comando:** `make test-all` corre tipos, unitarios,
   e2e y conformidad — 138 verificaciones, ninguna necesita API key.
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
@@ -131,7 +132,7 @@ Con `make up` y la API key del seed:
 | 6 | Dashboard administrativo | `[x]` hecha |
 | 7 | Adaptadores e integraciones | `[x]` hecha |
 | 8 | Pruebas | `[x]` hecha — 138 verificaciones con `make test-all` |
-| 9 | Documentación | `[~]` arquitectura y USI escritos |
+| 9 | Documentación | `[x]` hecha |
 | 10 | Despliegue | `[~]` compose y Makefile funcionando; falta Dockerfile y CI |
 
 ## Comandos
