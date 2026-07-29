@@ -14,12 +14,10 @@ después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 4 — formalizar USI (OpenAPI 3.1 y suite de conformidad).
-  El cliente USI y la app de referencia ya están hechos y probados.
-- **Próximo paso concreto:** `packages/usi-spec` con el OpenAPI 3.1 y los
-  esquemas compartidos, y `packages/usi-conformance` con el CLI que valida
-  cualquier implementación contra el contrato (incluido el marcado sintético,
-  el rechazo de objetivos no sintéticos y el nonce de purga).
+- **Fase en curso:** Fase 5 — SDK oficial (`@susp/sdk` y `@susp/usi-server`).
+- **Próximo paso concreto:** `packages/sdk` con el cliente tipado del motor, y
+  `packages/usi-server` con el helper para implementar USI, más la plantilla de
+  Supabase Edge Function. Ambos consumen `@susp/usi-spec`, que ya está hecho.
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
   que devolver `{"status":"ok"}` y `curl localhost:55704/usi/v1/manifest` con el
   token, el manifiesto de la app de referencia.
@@ -37,6 +35,8 @@ Con la app de referencia (`apps/reference-app`, USI en memoria) como destino:
 | Purga sin nonce | `403` |
 | Purga con nombre de campaña incorrecto | rechazada |
 | Purga real de la campaña | borró exactamente lo suyo; **la campaña anterior quedó intacta** |
+| Suite de conformidad contra la app de referencia | **17 de 17**, código de salida 0 |
+| Suite contra una app a la que se le quitó el marcado a propósito | **falla y sale con 1**, explicando qué falta |
 
 ## Qué se puede hacer hoy
 
@@ -105,7 +105,11 @@ Con `make up` y la API key del seed:
    undefined (reading 'fileExists')`). La app de referencia usa el borrado de
    tipos nativo de Node 22 (`node src/server.ts`), que además le saca una
    dependencia a un ejemplo que quiere ser mínimo.
-8. **El planificador daba una campaña por terminada apenas nadie tenía una
+8. **El borrado de tipos de Node es strip-only:** no admite *parameter
+   properties* (`constructor(private readonly x: T)`) ni `import` de algo que
+   solo existe en tiempo de compilación — hay que usar `import type`. Afecta a
+   todo paquete pensado para correr sin build, como los que van a Deno.
+9. **El planificador daba una campaña por terminada apenas nadie tenía una
    acción pendiente.** Arrancar de madrugada la cerraba en el acto: los agentes
    estaban fuera de horario, no habían terminado. Ahora solo cierra cuando todos
    cumplieron sus objetivos y no queda trabajo en vuelo.
@@ -117,7 +121,7 @@ Con `make up` y la API key del seed:
 | 1 | Arquitectura y fundaciones | `[x]` hecha |
 | 2 | Backend: motor central, DB y API Gateway | `[x]` hecha |
 | 3 | Motor de agentes IA | `[x]` hecha |
-| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[~]` cliente, tipos y app de referencia listos; falta OpenAPI y conformidad |
+| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[x]` hecha |
 | 5 | SDK oficial | `[ ]` pendiente |
 | 6 | Dashboard administrativo | `[ ]` pendiente |
 | 7 | Adaptadores e integraciones | `[~]` app de referencia lista; faltan los packs por vertical |

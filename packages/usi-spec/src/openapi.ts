@@ -1,0 +1,640 @@
+/**
+ * Documento OpenAPI 3.1 del estándar USI v1.
+ *
+ * Se escribe como objeto TypeScript y no como YAML suelto para que las
+ * constantes del contrato (capacidades, códigos de error) salgan de
+ * `types.ts` y no se puedan desincronizar: si alguien agrega una capacidad,
+ * aparece acá sola.
+ *
+ * `npm run emit -w @susp/usi-spec` lo vuelca a `openapi.json`.
+ */
+
+import { USI_CAPABILITIES, USI_ERROR_CODES, USI_VERSION } from './types.ts';
+
+const ERROR_RESPONSE = {
+  description: 'Error con el formato único del estándar.',
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/ErrorBody' },
+    },
+  },
+} as const;
+
+export const openapi = {
+  openapi: '3.1.0',
+  info: {
+    title: 'Universal Simulation Interface (USI)',
+    version: USI_VERSION,
+    summary: 'Contrato que una aplicación implementa para que SUSP pueda poblarla con usuarios sintéticos.',
+    description: [
+      'USI es el único camino por el que SUSP escribe en una aplicación: **el motor',
+      'nunca accede a la base de datos de la app**. La app conserva sus reglas de',
+      'negocio, sus validaciones y su modelo de datos.',
+      '',
+      '## Lo no negociable',
+      '',
+      '1. **Toda entidad creada queda marcada** con `synthetic: true`,',
+      '   `simulation_id` y `agent_id`, de forma persistente y consultable. Una',
+      '   implementación que no lo exponga no es conforme.',
+      '2. **Los agentes solo interactúan entre ellos.** `POST /interactions` debe',
+      '   rechazar con `422 target_not_synthetic` cualquier objetivo que no sea',
+      '   una entidad sintética.',
+      '3. **Todo es reversible.** `POST /purge` borra lo generado, y solo eso.',
+      '4. **La purga exige un nonce de un solo uso** emitido por `GET /state`,',
+      '   para que un borrado masivo no pueda dispararse por accidente.',
+      '',
+      'Solo cuatro endpoints son obligatorios: `/manifest`, `/auth/verify`,',
+      '`/state` y `/purge`. El resto se declara por capacidades en el manifiesto.',
+    ].join('\n'),
+    license: { name: 'UNLICENSED' },
+  },
+  servers: [
+    { url: 'https://tu-app.example/usi/v1', description: 'Tu implementación' },
+    { url: 'http://localhost:55704/usi/v1', description: 'App de referencia local' },
+  ],
+  security: [{ bearerAuth: [] }],
+  tags: [
+    { name: 'obligatorios', description: 'Los cuatro endpoints que toda implementación debe exponer.' },
+    { name: 'usuarios', description: 'Capacidades users.*' },
+    { name: 'contenido', description: 'Capacidad content.create' },
+    { name: 'interacciones', description: 'Capacidad interactions.create' },
+    { name: 'mensajería', description: 'Capacidad messaging.send' },
+    { name: 'auditoría', description: 'Capacidad audit.read' },
+  ],
+
+  paths: {
+    '/manifest': {
+      get: {
+        tags: ['obligatorios'],
+        operationId: 'getManifest',
+        summary: 'Manifiesto y versionado',
+        description:
+          'Punto de partida de toda integración: SUSP lo consulta antes que nada y ' +
+          'adapta su comportamiento a lo que la app declare. Un `environment` de ' +
+          '`production` hace que el motor rechace escribir salvo autorización explícita.',
+        responses: {
+          200: {
+            description: 'Manifiesto de la aplicación.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/Manifest' } },
+            },
+          },
+          401: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/auth/verify': {
+      post: {
+        tags: ['obligatorios'],
+        operationId: 'verifyAuth',
+        summary: 'Verificar credenciales',
+        description: 'Valida el token sin efectos secundarios. Alimenta el semáforo de estado del dashboard.',
+        responses: {
+          200: {
+            description: 'Resultado de la verificación.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/AuthVerification' } },
+            },
+          },
+          401: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/state': {
+      get: {
+        tags: ['obligatorios'],
+        operationId: 'getState',
+        summary: 'Estado y contadores',
+        description:
+          'Contadores **solo de entidades sintéticas**, y el `purge_token`: un nonce ' +
+          'de un solo uso y vida corta que `POST /purge` exige.',
+        responses: {
+          200: {
+            description: 'Estado actual.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/State' } } },
+          },
+          401: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/purge': {
+      post: {
+        tags: ['obligatorios'],
+        operationId: 'purge',
+        summary: 'Eliminar datos sintéticos',
+        description:
+          'Borra **solo** entidades marcadas como sintéticas. Jamás toca datos reales. ' +
+          'Requiere un `purge_token` válido y sin usar. Con `dry_run: true` devuelve el ' +
+          'conteo de lo que borraría sin borrar nada.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/PurgeRequest' } },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Resultado de la purga.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/PurgeResult' } } },
+          },
+          400: ERROR_RESPONSE,
+          403: { ...ERROR_RESPONSE, description: 'Token de purga ausente, vencido o ya usado.' },
+        },
+      },
+    },
+
+    '/users': {
+      post: {
+        tags: ['usuarios'],
+        operationId: 'createUser',
+        summary: 'Crear usuario sintético',
+        description: 'Capacidad `users.create`. Los emails sintéticos usan el TLD reservado `.invalid` (RFC 2606).',
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/CreateUserRequest' } },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Usuario creado, con su marcado sintético.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CreatedEntity' } } },
+          },
+          401: ERROR_RESPONSE,
+          422: { ...ERROR_RESPONSE, description: 'Rechazado por las reglas de negocio de la app. Es una respuesta esperada.' },
+          501: { ...ERROR_RESPONSE, description: 'La app no declara la capacidad users.create.' },
+        },
+      },
+    },
+
+    '/users/{id}': {
+      parameters: [
+        {
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Identificador devuelto por la app al crear el usuario.',
+        },
+      ],
+      patch: {
+        tags: ['usuarios'],
+        operationId: 'updateUser',
+        summary: 'Actualizar perfil',
+        description: 'Capacidad `users.update`. Debe responder `422` si el usuario no es sintético.',
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { profile: { $ref: '#/components/schemas/UserProfile' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Usuario actualizado.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CreatedEntity' } } },
+          },
+          404: ERROR_RESPONSE,
+          422: ERROR_RESPONSE,
+        },
+      },
+      delete: {
+        tags: ['usuarios'],
+        operationId: 'deleteUser',
+        summary: 'Borrar un usuario sintético',
+        description: 'Capacidad `users.delete`. Para el borrado masivo está `/purge`.',
+        responses: {
+          204: { description: 'Borrado.' },
+          404: ERROR_RESPONSE,
+          422: { ...ERROR_RESPONSE, description: 'El usuario no es sintético.' },
+        },
+      },
+    },
+
+    '/content': {
+      post: {
+        tags: ['contenido'],
+        operationId: 'createContent',
+        summary: 'Crear contenido demo',
+        description: 'Capacidad `content.create`. `created_at` permite sembrar historial con fechas pasadas.',
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/CreateContentRequest' } },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Contenido creado.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CreatedEntity' } } },
+          },
+          422: ERROR_RESPONSE,
+          501: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/interactions': {
+      post: {
+        tags: ['interacciones'],
+        operationId: 'createInteraction',
+        summary: 'Generar una interacción',
+        description:
+          'Capacidad `interactions.create`. **El objetivo debe ser sintético**: si no lo es, ' +
+          'la app responde `422` con `code: "target_not_synthetic"`. Esta regla es la que ' +
+          'garantiza que los agentes nunca interactúen con usuarios reales.',
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/CreateInteractionRequest' } },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Interacción registrada.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CreatedEntity' } } },
+          },
+          422: { ...ERROR_RESPONSE, description: 'El objetivo no es una entidad sintética.' },
+          501: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/messages': {
+      post: {
+        tags: ['mensajería'],
+        operationId: 'sendMessage',
+        summary: 'Enviar un mensaje',
+        description: 'Capacidad `messaging.send`. Emisor y destinatarios deben ser sintéticos.',
+        parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/SendMessageRequest' } },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Mensaje enviado.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SentMessage' } } },
+          },
+          422: ERROR_RESPONSE,
+          501: ERROR_RESPONSE,
+        },
+      },
+    },
+
+    '/audit': {
+      get: {
+        tags: ['auditoría'],
+        operationId: 'getAudit',
+        summary: 'Auditoría de operaciones aplicadas',
+        description: 'Capacidad `audit.read`. Es el registro del lado de la app de lo que efectivamente aplicó.',
+        parameters: [
+          { name: 'simulation_id', in: 'query', schema: { type: 'string' } },
+          { name: 'since', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 1000, default: 100 } },
+          { name: 'cursor', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: {
+            description: 'Página de eventos.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AuditPage' } } },
+          },
+          501: ERROR_RESPONSE,
+        },
+      },
+    },
+  },
+
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        description:
+          'Token emitido por la aplicación y registrado en SUSP. SUSP lo guarda cifrado ' +
+          'y nunca lo devuelve por su API.',
+      },
+    },
+
+    parameters: {
+      IdempotencyKey: {
+        name: 'Idempotency-Key',
+        in: 'header',
+        required: false,
+        schema: { type: 'string', format: 'uuid' },
+        description:
+          'Repetir una petición con la misma clave debe devolver el resultado original ' +
+          'sin duplicar nada. Es lo que hace seguro reintentar.',
+      },
+    },
+
+    schemas: {
+      SyntheticMarker: {
+        type: 'object',
+        description:
+          'Marcado obligatorio de toda entidad creada vía USI. No es opcional ni ' +
+          'desactivable: es lo que permite distinguir un agente de una persona.',
+        required: ['synthetic', 'simulation_id', 'agent_id'],
+        properties: {
+          synthetic: { type: 'boolean', const: true },
+          simulation_id: { type: 'string', description: 'Ejecución de SUSP que la creó.' },
+          agent_id: { type: 'string', description: 'Agente sintético responsable.' },
+          created_by: { type: 'string', examples: ['susp'] },
+        },
+      },
+
+      CreatedEntity: {
+        allOf: [
+          { $ref: '#/components/schemas/SyntheticMarker' },
+          {
+            type: 'object',
+            required: ['id'],
+            properties: {
+              id: { type: 'string' },
+              external_ref: { type: 'string' },
+              created_at: { type: 'string', format: 'date-time' },
+            },
+          },
+        ],
+      },
+
+      Manifest: {
+        type: 'object',
+        required: ['usi_version', 'app', 'capabilities'],
+        properties: {
+          usi_version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$', examples: [USI_VERSION] },
+          app: {
+            type: 'object',
+            required: ['name', 'environment', 'vertical'],
+            properties: {
+              name: { type: 'string' },
+              environment: { type: 'string', enum: ['development', 'staging', 'production'] },
+              vertical: {
+                type: 'string',
+                enum: ['dating', 'social', 'telemedicine', 'marketplace', 'other'],
+              },
+            },
+          },
+          capabilities: {
+            type: 'array',
+            items: { type: 'string', enum: [...USI_CAPABILITIES] },
+          },
+          requires_signature: { type: 'boolean', default: false },
+          limits: {
+            type: 'object',
+            properties: {
+              max_batch_size: { type: 'integer' },
+              requests_per_minute: { type: 'integer' },
+            },
+          },
+          content_types: { type: 'array', items: { type: 'string' } },
+          interaction_types: { type: 'array', items: { type: 'string' } },
+        },
+      },
+
+      AuthVerification: {
+        type: 'object',
+        required: ['authenticated', 'app_id', 'scopes'],
+        properties: {
+          authenticated: { type: 'boolean' },
+          app_id: { type: 'string' },
+          scopes: { type: 'array', items: { type: 'string' } },
+          token_expires_at: { type: ['string', 'null'], format: 'date-time' },
+        },
+      },
+
+      UserProfile: {
+        type: 'object',
+        required: ['display_name'],
+        properties: {
+          display_name: { type: 'string' },
+          handle: { type: 'string' },
+          email: {
+            type: 'string',
+            description: 'Debería usar el TLD reservado .invalid (RFC 2606): imposible de entregar.',
+            examples: ['camifer@demo.susp.invalid'],
+          },
+          bio: { type: 'string' },
+          birth_date: { type: 'string', format: 'date' },
+          gender: { type: 'string' },
+          location: {
+            type: 'object',
+            properties: {
+              city: { type: 'string' },
+              country: { type: 'string' },
+              lat: { type: 'number' },
+              lon: { type: 'number' },
+            },
+          },
+          interests: { type: 'array', items: { type: 'string' } },
+          avatar: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', examples: ['procedural'] },
+              seed: { type: 'string' },
+              url: { type: 'string', format: 'uri' },
+            },
+          },
+          locale: { type: 'string', examples: ['es-AR'] },
+          occupation: { type: 'string' },
+        },
+      },
+
+      CreateUserRequest: {
+        type: 'object',
+        required: ['agent_id', 'simulation_id', 'profile'],
+        properties: {
+          agent_id: { type: 'string' },
+          simulation_id: { type: 'string' },
+          profile: { $ref: '#/components/schemas/UserProfile' },
+          attributes: { type: 'object', additionalProperties: true },
+        },
+      },
+
+      CreateContentRequest: {
+        type: 'object',
+        required: ['agent_id', 'simulation_id', 'author_id', 'type'],
+        properties: {
+          agent_id: { type: 'string' },
+          simulation_id: { type: 'string' },
+          author_id: { type: 'string' },
+          type: { type: 'string', description: 'Debe estar en manifest.content_types.' },
+          body: { type: 'string' },
+          media: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['kind'],
+              properties: {
+                kind: { type: 'string' },
+                seed: { type: 'string' },
+                url: { type: 'string', format: 'uri' },
+                alt: { type: 'string' },
+              },
+            },
+          },
+          parent_id: { type: ['string', 'null'] },
+          attributes: { type: 'object', additionalProperties: true },
+          created_at: {
+            type: 'string',
+            format: 'date-time',
+            description: 'Permite sembrar historial con fechas pasadas.',
+          },
+        },
+      },
+
+      CreateInteractionRequest: {
+        type: 'object',
+        required: ['agent_id', 'simulation_id', 'actor_id', 'type', 'target_type', 'target_id'],
+        properties: {
+          agent_id: { type: 'string' },
+          simulation_id: { type: 'string' },
+          actor_id: { type: 'string' },
+          type: { type: 'string', description: 'Debe estar en manifest.interaction_types.' },
+          target_type: { type: 'string', enum: ['user', 'content', 'interaction'] },
+          target_id: { type: 'string', description: 'Debe ser una entidad sintética.' },
+          value: { type: ['number', 'string', 'null'] },
+          attributes: { type: 'object', additionalProperties: true },
+        },
+      },
+
+      SendMessageRequest: {
+        type: 'object',
+        required: ['agent_id', 'simulation_id', 'from_id', 'to_ids', 'body'],
+        properties: {
+          agent_id: { type: 'string' },
+          simulation_id: { type: 'string' },
+          conversation_id: { type: ['string', 'null'], description: 'null abre una conversación nueva.' },
+          from_id: { type: 'string' },
+          to_ids: { type: 'array', minItems: 1, items: { type: 'string' } },
+          body: { type: 'string' },
+          attributes: { type: 'object', additionalProperties: true },
+        },
+      },
+
+      SentMessage: {
+        allOf: [
+          { $ref: '#/components/schemas/CreatedEntity' },
+          {
+            type: 'object',
+            required: ['conversation_id'],
+            properties: { conversation_id: { type: 'string' } },
+          },
+        ],
+      },
+
+      Counts: {
+        type: 'object',
+        required: ['users', 'content', 'interactions', 'messages'],
+        properties: {
+          users: { type: 'integer', minimum: 0 },
+          content: { type: 'integer', minimum: 0 },
+          interactions: { type: 'integer', minimum: 0 },
+          messages: { type: 'integer', minimum: 0 },
+        },
+      },
+
+      State: {
+        type: 'object',
+        required: ['healthy', 'usi_version', 'counts'],
+        properties: {
+          healthy: { type: 'boolean' },
+          usi_version: { type: 'string' },
+          counts: { $ref: '#/components/schemas/Counts' },
+          by_simulation: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['simulation_id'],
+              properties: { simulation_id: { type: 'string' } },
+              additionalProperties: true,
+            },
+          },
+          purge_token: {
+            type: 'string',
+            description: 'Nonce de un solo uso requerido por POST /purge. Vida corta (15 min recomendado).',
+          },
+          purge_token_expires_at: { type: 'string', format: 'date-time' },
+          server_time: { type: 'string', format: 'date-time' },
+        },
+      },
+
+      PurgeRequest: {
+        type: 'object',
+        required: ['purge_token', 'scope'],
+        properties: {
+          purge_token: { type: 'string' },
+          scope: { type: 'string', enum: ['simulation', 'all'] },
+          simulation_id: { type: 'string', description: 'Requerido si scope = simulation.' },
+          dry_run: { type: 'boolean', default: false },
+        },
+      },
+
+      PurgeResult: {
+        type: 'object',
+        required: ['purged', 'dry_run'],
+        properties: {
+          purged: { $ref: '#/components/schemas/Counts' },
+          dry_run: { type: 'boolean' },
+          completed_at: { type: 'string', format: 'date-time' },
+        },
+      },
+
+      AuditPage: {
+        type: 'object',
+        required: ['events'],
+        properties: {
+          events: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['id', 'at', 'operation', 'entity_type', 'entity_id', 'simulation_id', 'result'],
+              properties: {
+                id: { type: 'string' },
+                at: { type: 'string', format: 'date-time' },
+                operation: { type: 'string' },
+                entity_type: { type: 'string' },
+                entity_id: { type: 'string' },
+                simulation_id: { type: 'string' },
+                agent_id: { type: 'string' },
+                result: { type: 'string' },
+              },
+            },
+          },
+          next_cursor: { type: ['string', 'null'] },
+        },
+      },
+
+      ErrorBody: {
+        type: 'object',
+        required: ['error'],
+        properties: {
+          error: {
+            type: 'object',
+            required: ['code', 'message'],
+            properties: {
+              code: { type: 'string', enum: [...USI_ERROR_CODES] },
+              message: { type: 'string' },
+              details: {},
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export type OpenApiDocument = typeof openapi;

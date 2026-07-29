@@ -1,7 +1,18 @@
 {
   "name": "@susp/usi-spec",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "license": "UNLICENSED",
-  "description": "Esquemas, tipos y OpenAPI del estandar USI."
+  "description": "Contrato del estándar USI: tipos, esquemas de validación y documento OpenAPI 3.1.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi": "./src/openapi.ts"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "emit": "node scripts/emit-openapi.ts"
+  }
 }

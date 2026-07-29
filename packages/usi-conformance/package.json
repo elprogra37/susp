@@ -1,7 +1,18 @@
 {
   "name": "@susp/usi-conformance",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "license": "UNLICENSED",
-  "description": "Suite de conformidad del estandar USI."
+  "description": "Suite de conformidad del estándar USI: valida cualquier implementación contra el contrato.",
+  "bin": {
+    "usi-conformance": "src/cli.ts"
+  },
+  "scripts": {
+    "cli": "node src/cli.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@susp/usi-spec": "*"
+  }
 }
