@@ -1,0 +1,99 @@
+name: susp
+
+# Todo corre en contenedores: la máquina de desarrollo no tiene Node instalado.
+# Bloque de puertos 557xx, elegido para no chocar con los otros proyectos de C:\Dev.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: susp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-susp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-susp_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-susp}
+    ports:
+      - '${SUSP_DB_PORT:-55702}:5432'
+    volumes:
+      - susp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # El motor espera este healthcheck antes de arrancar: sin base, no hay motor.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-susp} -d ${POSTGRES_DB:-susp}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  engine:
+    image: node:22-alpine
+    container_name: susp-engine
+    restart: unless-stopped
+    working_dir: /app/apps/engine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      # Dentro de la red de compose se usa el puerto interno de Postgres (5432),
+      # no el publicado en el host.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-susp}:${POSTGRES_PASSWORD:-susp_local_dev}@postgres:5432/${POSTGRES_DB:-susp}?schema=public
+      SUSP_API_PORT: 55701
+      JWT_SECRET: ${JWT_SECRET:-dev_secret_cambiar_en_produccion_32chars}
+      SUSP_ENCRYPTION_KEY: ${SUSP_ENCRYPTION_KEY:-}
+      SUSP_LLM_PROVIDER: ${SUSP_LLM_PROVIDER:-deterministic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUSP_LLM_MODEL_REASONING: ${SUSP_LLM_MODEL_REASONING:-claude-opus-5}
+      SUSP_LLM_MODEL_CONTENT: ${SUSP_LLM_MODEL_CONTENT:-claude-haiku-4-5}
+      SUSP_BLOCK_PRODUCTION_TARGETS: ${SUSP_BLOCK_PRODUCTION_TARGETS:-true}
+      SUSP_DRY_RUN: ${SUSP_DRY_RUN:-false}
+      SUSP_SCHEDULER_ENABLED: ${SUSP_SCHEDULER_ENABLED:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '${SUSP_API_PORT:-55701}:55701'
+    volumes:
+      - ../:/app
+      - susp-node-modules:/app/node_modules
+      - susp-engine-dist:/app/apps/engine/dist
+    # Se ejecuta el build ya compilado, no watch mode: sobre un bind mount de
+    # Windows, `tsc --watch` tarda minutos en levantar y consume CPU sin parar.
+    # Para desarrollo con recarga en caliente:  make dev
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+  reference-app:
+    image: node:22-alpine
+    container_name: susp-reference-app
+    restart: unless-stopped
+    working_dir: /app/apps/reference-app
+    environment:
+      PORT: 55704
+      # Token de la app de referencia. Es de juguete a propósito: solo sirve
+      # para probar el motor de punta a punta sin depender de una app real.
+      USI_TOKEN: ${SUSP_REFERENCE_TOKEN:-reference-token-dev}
+    ports:
+      - '${SUSP_REFERENCE_PORT:-55704}:55704'
+    volumes:
+      - ../:/app
+      - susp-node-modules:/app/node_modules
+    command: sh -c "npm run start"
+
+  dashboard:
+    image: node:22-alpine
+    container_name: susp-dashboard
+    restart: unless-stopped
+    working_dir: /app/apps/dashboard
+    environment:
+      VITE_SUSP_API_URL: http://localhost:${SUSP_API_PORT:-55701}/api/v1
+    ports:
+      - '${SUSP_DASHBOARD_PORT:-55703}:55703'
+    volumes:
+      - ../:/app
+      - susp-node-modules:/app/node_modules
+    command: sh -c "npm run dev -- --host 0.0.0.0 --port 55703"
+
+volumes:
+  susp-pgdata:
+  # node_modules y dist viven en el filesystem del VM de Docker, no en el bind
+  # mount de Windows. Sin esto, un solo `require('@nestjs/core')` tarda ~43
+  # segundos, y `nest build` escribe el dist a medias.
+  susp-node-modules:
+  susp-engine-dist:

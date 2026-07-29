@@ -1,95 +1,143 @@
 # Estado de SUSP
 
-> Última actualización: **28/07/2026**
+> Última actualización: **29/07/2026**
 > Repo: **github.com/elprogra37/susp** (rama `main`). Carpeta local: `C:\Dev\clientes`.
 > Lo que falta está en [PENDIENTES.md](PENDIENTES.md). El plan, en
 > [docs/ROADMAP.md](docs/ROADMAP.md). El diseño, en [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md).
 
 ## Resumen en una línea
 
-**Fase 1 cerrada (arquitectura y fundaciones).** Están definidos el stack, el
-modelo de datos, las salvaguardas y el estándar USI completo; el monorepo está
-armado y publicado. Todavía no hay código ejecutable: eso arranca en la Fase 2.
+**Fases 1 y 2 cerradas.** El motor arranca, se conecta a PostgreSQL, autentica
+por API key y por JWT, y expone el CRUD completo de apps destino, personas,
+escenarios, campañas, ejecuciones y auditoría. Las salvaguardas de producción y
+el cifrado de credenciales están implementados y verificados contra la API real.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 2 — Backend (motor central, base de datos y API Gateway).
-- **Próximo paso concreto:** crear `apps/engine` (NestJS + Prisma), definir el
-  `schema.prisma` con el modelo de datos de `docs/ARQUITECTURA.md` §4, levantar
-  Postgres con `make up` y aplicar la primera migración.
-- **Cómo retomar:** leer este archivo, después `docs/ARQUITECTURA.md` y
-  `docs/USI.md`. La arquitectura ya está decidida — no rediscutirla, implementarla.
+- **Fase en curso:** Fase 3 — Motor de agentes IA.
+- **Ya escrito de la Fase 3:** `src/llm/` con la interfaz `LlmProvider`, el
+  `AnthropicProvider`, el `DeterministicProvider` (plantillas sembradas, sin API
+  key), el PRNG `SeededRandom` y el corpus rioplatense.
+- **Próximo paso concreto:** el `AgentsModule` — generar agentes a partir de
+  personas (rasgos con variación individual), memoria con decaimiento, horarios,
+  y el planificador que convierte un `Run` en PENDING en una cola de `Job`.
+  Después, el scheduler con `FOR UPDATE SKIP LOCKED`.
+- **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
+  que devolver `{"status":"ok"}`. Después leer `docs/ARQUITECTURA.md` §3 y §4.
+
+## Qué se puede hacer hoy
+
+Con `make up` y la API key del seed:
+
+- **Autenticarse** con `X-Susp-Key` (integraciones) o `POST /api/v1/auth/login`
+  (dashboard, devuelve JWT de 12 h). El rol se relee de la base en cada
+  petición, así que revocar un permiso surte efecto al instante.
+- **Registrar apps destino** con su URL de USI y su token. El token se guarda
+  cifrado con AES-256-GCM y **no vuelve a salir** por la API — verificado.
+- **Chequear la salud de una app** (`POST /target-apps/:id/health-check`): lee su
+  manifiesto, verifica credenciales, comprueba que declare los endpoints
+  obligatorios y cachea sus capacidades.
+- **Definir personas y escenarios**, con validación de que la mezcla de acciones
+  solo use operaciones USI que existan.
+- **Crear campañas** y arrancarlas: se encola un `Run` en PENDING (el
+  planificador que lo consume llega en la Fase 3).
+- **Consultar auditoría** y su resumen por operación y resultado.
+- **Purgar** lo generado por una campaña, con doble confirmación.
+
+## Salvaguardas ya implementadas y verificadas
+
+| Salvaguarda | Estado |
+| --- | --- |
+| Credenciales USI cifradas en reposo, nunca devueltas por la API | ✅ verificado |
+| Marcado sintético obligatorio en toda escritura (`X-USI-Synthetic`, ids) | ✅ en el cliente USI |
+| Escrituras contra producción bloqueadas por defecto | ✅ verificado |
+| Habilitarlas exige slug exacto + frase exacta "ENTIENDO EL RIESGO" | ✅ verificado |
+| Reintentos solo ante fallos transitorios, nunca ante `422` | ✅ con test |
+| Purga sin reintento (el nonce es de un solo uso) | ✅ con test |
+| Auditoría append-only que no puede tumbar la operación auditada | ✅ |
+| Borrar una campaña con entidades sin purgar → se rechaza | ✅ |
 
 ## Decisiones tomadas (y por qué)
 
 | Decisión | Motivo |
 | --- | --- |
-| TypeScript + **NestJS** + **Prisma** + **PostgreSQL 16** | Es exactamente el stack de `C:\Dev\telemedicina`. Consistencia con lo que ya mantiene el usuario. |
-| **Docker primero** para todo | La máquina **no tiene Node instalado**. Instalar, compilar, testear y ejecutar pasan por contenedores. |
-| Cola en **Postgres con `SKIP LOCKED`**, no Redis | Una dependencia menos, durable y transaccional. La interfaz `JobQueue` deja lugar a Redis más adelante sin reescribir nada. |
-| Bloque de puertos **557xx** | Los demás proyectos ocupan 553xx–556xx; 557xx estaba libre. |
-| Proveedor LLM **pluggable** (Anthropic + determinístico) | Todo tiene que correr y testearse sin API key. La CI usa el determinístico. |
-| `claude-opus-5` para razonamiento, `claude-haiku-4-5` para contenido masivo | Calidad donde importa, costo bajo donde hay volumen. |
-| Emails sintéticos con TLD **`.invalid`** | RFC 2606: imposibles de entregar. Ningún correo real puede salir por accidente. |
-| Repo `susp` (≠ carpeta `clientes`) | Ya es su costumbre: `cannabisgram`→`cannapp`, `orbita`→`callme`, `vecinal`→`cuadra`. |
+| TypeScript + **NestJS 11** + **Prisma 7** + **PostgreSQL 16** | El stack de `C:\Dev\telemedicina`. Consistencia con lo que ya mantiene el usuario. |
+| **Docker primero** | La máquina **no tiene Node instalado**. |
+| **`node_modules` y `dist` en volúmenes de Docker**, no en el bind mount | Medido: desde el bind mount, `require('@nestjs/core')` tarda **43 s** y `npm install` ~40 min. En volumen nativo: **0,3 s** y **95 s**. El build pasó de 243 s a 23 s. |
+| Cola en **Postgres con `SKIP LOCKED`**, no Redis | Una dependencia menos, durable y transaccional. |
+| Bloque de puertos **557xx** | Los demás proyectos ocupan 553xx–556xx. |
+| Proveedor LLM **pluggable** (Anthropic + determinístico) | Todo tiene que correr y testearse sin API key. |
+| Contraseñas con **scrypt** (`node:crypto`), no bcrypt/argon2 | Viene en el runtime: nada de módulos nativos que compilar en Alpine. |
+| Emails sintéticos con TLD **`.invalid`** | RFC 2606: imposibles de entregar. |
 
-## Supuestos asumidos (no se pudo preguntar)
+## Tropiezos resueltos (para no repetirlos)
 
-1. **Nombre del repo: `susp`.** La carpeta se llama `clientes` pero el proyecto es
-   SUSP. Si querías otro nombre, se renombra en GitHub y se actualiza el remoto.
-2. **Rama principal `main`.** `amor` usa `develop` por defecto; acá arranqué con
-   `main` por simplicidad, con `develop` disponible si hace falta el flujo de dos ramas.
-3. **Alcance de verticales:** citas, red social, telemedicina y marketplace, que es
-   lo que dice la especificación y lo que cubre el portfolio.
-4. **Sin generación de imágenes por IA en la v1:** avatares procedurales
-   deterministas. Evita costo y dependencia externa para algo secundario.
-
-## Qué se puede hacer hoy
-
-- **Leer el diseño completo.** `docs/ARQUITECTURA.md` tiene componentes, modelo de
-  datos, stack justificado y salvaguardas; `docs/USI.md` tiene el estándar entero
-  con todos los endpoints, ejemplos de cuerpo y reglas de error.
-- **Nada ejecutable todavía.** La Fase 1 es diseño y andamiaje; el primer código
-  que corre llega con la Fase 2.
+1. **Prisma 7 sacó `url` del `schema.prisma`.** Ahora la conexión de Migrate va en
+   `prisma.config.ts` y el cliente recibe un adaptador (`@prisma/adapter-pg`).
+2. **TypeScript 6 exige `rootDir` explícito** y deprecó `baseUrl`.
+3. **`bufferLogs: true` en `NestFactory.create` se tragaba el error de arranque.**
+   Un contenedor "arriba" pero sin escuchar es peor que uno caído. Ahora el
+   bootstrap loguea y sale con código 1.
+4. **`CONFIG` provisto en `AppModule` no era visible** para `PrismaModule`: los
+   providers de un módulo no llegan a los módulos que ese módulo importa. Se
+   resolvió con un `SuspConfigModule` global.
+5. **`nest build` salía con código 0 sin emitir un solo archivo:** un
+   `.tsbuildinfo` viejo le hacía creer que ya estaba todo compilado, mientras el
+   script había vaciado `dist`. Se desactivó `incremental` en el build.
+6. **`deleteOutDir: true` da EBUSY** cuando `dist` es un punto de montaje.
 
 ## Fases
 
 | # | Fase | Estado |
 | --- | --- | --- |
 | 1 | Arquitectura y fundaciones | `[x]` hecha |
-| 2 | Backend: motor central, DB y API Gateway | `[ ]` pendiente |
-| 3 | Motor de agentes IA | `[ ]` pendiente |
-| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[ ]` pendiente |
+| 2 | Backend: motor central, DB y API Gateway | `[x]` hecha |
+| 3 | Motor de agentes IA | `[~]` en curso (proveedores LLM listos) |
+| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[~]` cliente y tipos listos; falta OpenAPI y conformidad |
 | 5 | SDK oficial | `[ ]` pendiente |
 | 6 | Dashboard administrativo | `[ ]` pendiente |
 | 7 | Adaptadores e integraciones | `[ ]` pendiente |
-| 8 | Pruebas | `[ ]` pendiente |
-| 9 | Documentación | `[ ]` pendiente |
-| 10 | Despliegue | `[ ]` pendiente |
+| 8 | Pruebas | `[~]` 34 unitarios verdes; falta e2e y conformidad |
+| 9 | Documentación | `[~]` arquitectura y USI escritos |
+| 10 | Despliegue | `[~]` compose y Makefile funcionando; falta Dockerfile y CI |
 
 ## Comandos
 
-Todo pasa por Docker porque no hay Node en el host.
+```bash
+make up        # levanta la plataforma entera
+make down      # baja todo
+make logs      # sigue los logs
+make install   # instala dependencias en el volumen (~95 s)
+make build     # compila el motor (~23 s)
+make rebuild   # compila y reinicia el motor
+make test      # corre las pruebas
+make migrate   # aplica migraciones
+make seed      # siembra tenant, usuario y API key
+make psql      # consola de PostgreSQL
+make reset     # borra todo y reconstruye desde cero
+```
+
+Comprobación rápida de que está vivo:
 
 ```bash
-make up          # levanta Postgres + motor + dashboard
-make down        # baja todo
-make logs        # sigue los logs
-make install     # npm install dentro del contenedor
-make test        # corre la batería completa
-make migrate     # aplica migraciones de Prisma
+curl localhost:55701/health          # {"status":"ok",...}
+curl localhost:55701/health/ready    # {"status":"ready","checks":{"database":true}}
+curl -H "X-Susp-Key: <clave>" localhost:55701/api/v1/tenant
 ```
 
 ## Variables de entorno
 
-Los **nombres** están en `.env.example` (los valores nunca se commitean). Las que
-importan: `DATABASE_URL`, `JWT_SECRET`, `SUSP_LLM_PROVIDER`, `ANTHROPIC_API_KEY`
-(solo si el proveedor es `anthropic`), `SUSP_BLOCK_PRODUCTION_TARGETS`,
-`SUSP_DRY_RUN`.
+Los **nombres** están en `.env.example`; los valores nunca se commitean. El `.env`
+local ya está generado con secretos aleatorios. Las que importan:
+`DATABASE_URL`, `JWT_SECRET`, `SUSP_LLM_PROVIDER`, `ANTHROPIC_API_KEY` (solo si
+el proveedor es `anthropic`), `SUSP_BLOCK_PRODUCTION_TARGETS`, `SUSP_DRY_RUN`.
+
+Credenciales sembradas en desarrollo: `admin@susp.local` / `susp-admin-2026`.
+La API key de bootstrap está en el `.env` local.
 
 ## Bloqueos conocidos
 
 - **GitHub Actions sin cuota.** La cuenta tiene agotada la cuota de storage de
   artifacts (mismo problema que en `amor`), así que la CI puede no disparar runs.
-  El workflow se escribe sin `upload-artifact` para no empeorarlo, y la
-  verificación real es local vía Docker. **No es bloqueante para el desarrollo.**
+  El workflow se escribirá sin `upload-artifact` y la verificación real es local
+  vía Docker. **No es bloqueante.**

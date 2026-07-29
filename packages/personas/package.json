@@ -1,0 +1,7 @@
+{
+  "name": "@susp/personas",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Arquetipos de agente y adaptadores por vertical."
+}

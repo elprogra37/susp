@@ -1,0 +1,7 @@
+{
+  "name": "@susp/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Dashboard administrativo de SUSP."
+}

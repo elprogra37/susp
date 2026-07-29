@@ -1,0 +1,7 @@
+{
+  "name": "@susp/usi-spec",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Esquemas, tipos y OpenAPI del estandar USI."
+}

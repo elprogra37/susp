@@ -1,0 +1,7 @@
+{
+  "name": "@susp/reference-app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "App de referencia que implementa USI en memoria."
+}

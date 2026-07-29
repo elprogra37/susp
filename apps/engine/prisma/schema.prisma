@@ -1,0 +1,535 @@
+// SUSP — esquema del motor.
+// El modelo conceptual está en docs/ARQUITECTURA.md §4.
+//
+// Regla que atraviesa todo el esquema: el motor guarda un espejo local de cada
+// entidad que crea en la app destino (`SyntheticEntity`). Eso es lo que hace
+// posible enumerar y purgar exactamente lo generado, sin tocar nada más.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 sacó `url` del esquema: la conexión de Migrate vive en
+// `prisma.config.ts`, y el cliente en runtime recibe un adaptador (`@prisma/adapter-pg`).
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── enums ─────────────────────────────
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum MemberRole {
+  OWNER
+  OPERATOR
+  VIEWER
+}
+
+enum AppEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum Vertical {
+  DATING
+  SOCIAL
+  TELEMEDICINE
+  MARKETPLACE
+  OTHER
+}
+
+enum AppHealth {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  UNREACHABLE
+  NON_CONFORMANT
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD
+  CANCELLED
+}
+
+enum AgentStatus {
+  IDLE
+  ACTIVE
+  EXHAUSTED
+  DISABLED
+}
+
+enum MemoryKind {
+  EPISODIC
+  SEMANTIC
+}
+
+enum SyntheticKind {
+  USER
+  CONTENT
+  INTERACTION
+  MESSAGE
+}
+
+enum AuditResult {
+  OK
+  REJECTED
+  ERROR
+  SKIPPED
+  DRY_RUN
+}
+
+// ──────────────────────── tenancy y accesos ────────────────────────
+
+model Tenant {
+  id        String       @id @default(cuid())
+  name      String
+  slug      String       @unique
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  members    Member[]
+  apiKeys    ApiKey[]
+  targetApps TargetApp[]
+  personas   Persona[]
+  scenarios  Scenario[]
+  campaigns  Campaign[]
+  auditLog   AuditEvent[]
+
+  @@map("tenants")
+}
+
+model Member {
+  id           String     @id @default(cuid())
+  tenantId     String
+  email        String
+  passwordHash String
+  role         MemberRole @default(OPERATOR)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@map("members")
+}
+
+/// La clave se guarda hasheada. El valor en claro se muestra una sola vez, al crearla.
+model ApiKey {
+  id         String     @id @default(cuid())
+  tenantId   String
+  name       String
+  prefix     String     @unique
+  hash       String
+  role       MemberRole @default(OPERATOR)
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+// ────────────────────────── apps destino ──────────────────────────
+
+model TargetApp {
+  id       String         @id @default(cuid())
+  tenantId String
+  name     String
+  slug     String
+  baseUrl  String
+  env      AppEnvironment @default(DEVELOPMENT)
+  vertical Vertical       @default(OTHER)
+
+  /// Salvaguarda: escribir contra una app de producción exige activarlo a mano.
+  productionWritesAllowed Boolean @default(false)
+
+  /// Manifiesto USI cacheado (capacidades, límites, tipos soportados).
+  manifest         Json?
+  usiVersion       String?
+  capabilities     String[]  @default([])
+  requiresSignature Boolean  @default(false)
+
+  health          AppHealth @default(UNKNOWN)
+  healthCheckedAt DateTime?
+  healthDetail    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  credential UsiCredential?
+  campaigns  Campaign[]
+  entities   SyntheticEntity[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("target_apps")
+}
+
+/// Secreto para hablar con la app destino. Cifrado con AES-256-GCM.
+/// Nunca se devuelve por la API ni se escribe en logs.
+model UsiCredential {
+  id          String   @id @default(cuid())
+  targetAppId String   @unique
+  /// Ciphertext en base64. Formato: iv.tag.data
+  tokenCipher String
+  /// Secreto HMAC para firmar cuerpos, si la app lo exige.
+  signingCipher String?
+  rotatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  targetApp TargetApp @relation(fields: [targetAppId], references: [id], onDelete: Cascade)
+
+  @@map("usi_credentials")
+}
+
+// ─────────────────────── personas y escenarios ───────────────────────
+
+/// Arquetipo reutilizable. Una persona no actúa; se instancia en agentes.
+model Persona {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  vertical    Vertical @default(OTHER)
+  description String?
+
+  /// Rasgos 0..1: openness, conscientiousness, extraversion, agreeableness,
+  /// neuroticism, chattiness, riskTolerance, formality.
+  traits Json
+
+  interests String[] @default([])
+  locales   String[] @default(["es-AR"])
+
+  /// Objetivos plantilla: [{ kind, target, weight }]
+  goals Json @default("[]")
+
+  /// Plantilla de horario: franjas activas y ritmo.
+  schedule Json @default("{}")
+
+  /// Reglas condición → acción.
+  rules Json @default("[]")
+
+  builtin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agents Agent[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("personas")
+}
+
+/// Guion de la simulación: mezcla de acciones, intensidad y objetivos.
+model Scenario {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  vertical    Vertical @default(OTHER)
+  description String?
+
+  /// Peso relativo de cada acción: { "content.create": 3, "interactions.create": 6 }
+  actionMix Json @default("{}")
+
+  /// Acciones por agente y por hora (antes de la variación por personalidad).
+  intensity Float @default(1.0)
+
+  /// Fase de arranque: cuántas entidades sembrar antes de simular actividad.
+  seed Json @default("{}")
+
+  builtin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("scenarios")
+}
+
+// ──────────────────────── campañas y agentes ────────────────────────
+
+model Campaign {
+  id          String         @id @default(cuid())
+  tenantId    String
+  targetAppId String
+  scenarioId  String?
+  name        String
+  status      CampaignStatus @default(DRAFT)
+
+  agentCount Int @default(10)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  /// Calcula el plan completo sin ejecutar una sola escritura contra la app.
+  dryRun Boolean @default(false)
+
+  /// Aceleración del tiempo simulado: 1 = tiempo real, 60 = una hora por minuto.
+  timeScale Float @default(1.0)
+
+  config Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  targetApp TargetApp  @relation(fields: [targetAppId], references: [id], onDelete: Cascade)
+  scenario  Scenario?  @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+  agents    Agent[]
+  runs      Run[]
+
+  @@index([tenantId])
+  @@index([targetAppId])
+  @@map("campaigns")
+}
+
+model Agent {
+  id         String      @id @default(cuid())
+  campaignId String
+  personaId  String?
+  status     AgentStatus @default(IDLE)
+
+  displayName String
+  handle      String
+  locale      String @default("es-AR")
+
+  /// Instancia concreta de los rasgos de la persona, con variación individual.
+  traits    Json
+  interests String[] @default([])
+
+  /// Perfil sintético enviado a la app (nombre, bio, ciudad, avatar…).
+  profile Json @default("{}")
+
+  /// Objetivos con progreso: [{ kind, target, progress, done }]
+  goals Json @default("[]")
+
+  /// Semilla determinista: la misma semilla reproduce el mismo comportamiento.
+  seed String
+
+  /// Identificador del usuario ya creado en la app destino.
+  externalUserId String?
+
+  lastActedAt DateTime?
+  actionCount Int       @default(0)
+  errorCount  Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign  Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  persona   Persona?        @relation(fields: [personaId], references: [id], onDelete: SetNull)
+  memories  AgentMemory[]
+  schedules AgentSchedule[]
+  jobs      Job[]
+
+  @@unique([campaignId, handle])
+  @@index([campaignId, status])
+  @@map("agents")
+}
+
+/// Memoria del agente. `strength` decae con el tiempo; la recuperación pondera
+/// relevancia y frescura, así el agente "olvida" lo trivial y retiene lo que importa.
+model AgentMemory {
+  id      String     @id @default(cuid())
+  agentId String
+  kind    MemoryKind @default(EPISODIC)
+
+  content  String
+  subject  String?
+  strength Float    @default(1.0)
+  tags     String[] @default([])
+
+  occurredAt   DateTime @default(now())
+  lastRecalled DateTime?
+  recallCount  Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, kind])
+  @@index([agentId, occurredAt])
+  @@map("agent_memories")
+}
+
+/// Franja horaria de actividad. `dayOfWeek` null = todos los días.
+model AgentSchedule {
+  id        String @id @default(cuid())
+  agentId   String
+  dayOfWeek Int?
+  startHour Int
+  endHour   Int
+  /// Multiplicador de intensidad dentro de la franja.
+  weight    Float  @default(1.0)
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("agent_schedules")
+}
+
+// ─────────────────────── ejecuciones y trabajos ───────────────────────
+
+model Run {
+  id         String    @id @default(cuid())
+  campaignId String
+  status     RunStatus @default(PENDING)
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  jobsTotal     Int @default(0)
+  jobsSucceeded Int @default(0)
+  jobsFailed    Int @default(0)
+  jobsSkipped   Int @default(0)
+
+  dryRun Boolean @default(false)
+  error  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  jobs     Job[]
+  entities SyntheticEntity[]
+  audit    AuditEvent[]
+
+  @@index([campaignId, status])
+  @@map("runs")
+}
+
+/// Unidad atómica de trabajo. La cola vive acá: se reclama con
+/// `SELECT ... FOR UPDATE SKIP LOCKED`, que es transaccional y a prueba de
+/// múltiples workers sin necesidad de Redis.
+model Job {
+  id      String    @id @default(cuid())
+  runId   String
+  agentId String?
+  status  JobStatus @default(PENDING)
+
+  /// Operación USI: users.create, content.create, interactions.create, messaging.send…
+  operation String
+  payload   Json     @default("{}")
+
+  priority Int      @default(100)
+  runAt    DateTime @default(now())
+
+  attempts    Int @default(0)
+  maxAttempts Int @default(5)
+
+  lockedAt DateTime?
+  lockedBy String?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  durationMs Int?
+
+  lastError String?
+
+  /// Clave de idempotencia enviada a la app destino.
+  idempotencyKey String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([status, runAt, priority])
+  @@index([runId, status])
+  @@map("jobs")
+}
+
+// ──────────────────── espejo local y auditoría ────────────────────
+
+/// Espejo de cada entidad creada en la app destino. Sin esto no se puede
+/// garantizar una purga completa, que es el pilar de las salvaguardas.
+model SyntheticEntity {
+  id          String        @id @default(cuid())
+  targetAppId String
+  runId       String
+  agentId     String?
+  kind        SyntheticKind
+
+  /// Identificador que devolvió la app destino.
+  externalId String
+  /// Copia mínima de lo enviado, para poder auditar sin volver a llamar a la app.
+  snapshot   Json          @default("{}")
+
+  purgedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  targetApp TargetApp @relation(fields: [targetAppId], references: [id], onDelete: Cascade)
+  run       Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([targetAppId, kind, externalId])
+  @@index([runId, kind])
+  @@index([targetAppId, purgedAt])
+  @@map("synthetic_entities")
+}
+
+/// Registro append-only. Nunca se actualiza ni se borra.
+model AuditEvent {
+  id       String  @id @default(cuid())
+  tenantId String
+  runId    String?
+
+  actor     String
+  operation String
+  result    AuditResult @default(OK)
+
+  targetAppId String?
+  agentId     String?
+  entityId    String?
+
+  httpStatus Int?
+  durationMs Int?
+  detail     Json    @default("{}")
+  message    String?
+
+  at DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run    Run?   @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, at])
+  @@index([runId, at])
+  @@map("audit_events")
+}

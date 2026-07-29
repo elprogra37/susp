@@ -1,0 +1,7 @@
+{
+  "name": "@susp/usi-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Suite de conformidad del estandar USI."
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@susp/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "SDK oficial: cliente tipado del motor SUSP."
+}

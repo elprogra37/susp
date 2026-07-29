@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Solo se compila src, para que la salida quede en dist/main.js y no en
+    // dist/src/main.js.
+    "rootDir": "./src",
+    // Sin compilación incremental: `dist` es un volumen de Docker que el script
+    // de build vacía, y un .tsbuildinfo viejo hace que tsc crea que ya está todo
+    // compilado y no emita un solo archivo. Falla en silencio y con exit 0.
+    "incremental": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "prisma"]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@susp/usi-server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Helper para implementar USI en Node y Deno."
+}
