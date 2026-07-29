@@ -1,7 +1,19 @@
 {
   "name": "@susp/personas",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "license": "UNLICENSED",
-  "description": "Arquetipos de agente y adaptadores por vertical."
+  "description": "Packs de arquetipos de agente y escenarios por vertical: citas, red social, telemedicina y marketplace.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "sembrar": "node scripts/sembrar.ts",
+    "test": "node --test src/*.spec.ts"
+  },
+  "dependencies": {
+    "@susp/sdk": "*"
+  }
 }

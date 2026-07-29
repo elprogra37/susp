@@ -14,10 +14,11 @@ después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 7 — adaptadores por vertical (`packages/personas`).
-- **Próximo paso concreto:** packs de citas, red social, telemedicina y
-  marketplace: arquetipos de agente, generadores de contenido y guiones de
-  interacción, más un script para sembrarlos en el catálogo del motor.
+- **Fase en curso:** Fase 8 — pruebas (e2e de la API contra Postgres real).
+- **Próximo paso concreto:** `apps/engine/test` con los e2e: autenticación,
+  CRUD, salvaguardas y el ciclo completo de una campaña contra la app de
+  referencia. Los unitarios ya están (70 en el motor, 13 en personas, 7 de
+  renderizado) y la conformidad USI también.
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
   que devolver `{"status":"ok"}` y `curl localhost:55704/usi/v1/manifest` con el
   token, el manifiesto de la app de referencia.
@@ -39,6 +40,7 @@ Con la app de referencia (`apps/reference-app`, USI en memoria) como destino:
 | Suite contra una app a la que se le quitó el marcado a propósito | **falla y sale con 1**, explicando qué falta |
 | Suite contra una implementación hecha con `@susp/usi-server` | **17 de 17** — el helper produce implementaciones conformes |
 | Dashboard: renderizado de las 7 vistas | **7 de 7**, sin navegador |
+| Reparto proporcional del pack social (40 agentes) | 57,5 / 20 / 15 / 7,5 contra el objetivo 55 / 22 / 15 / 8 |
 
 ## Qué se puede hacer hoy
 
@@ -126,8 +128,8 @@ Con `make up` y la API key del seed:
 | 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[x]` hecha |
 | 5 | SDK oficial | `[x]` hecha |
 | 6 | Dashboard administrativo | `[x]` hecha |
-| 7 | Adaptadores e integraciones | `[~]` app de referencia lista; faltan los packs por vertical |
-| 8 | Pruebas | `[~]` 61 unitarios del motor + 7 de renderizado; falta e2e |
+| 7 | Adaptadores e integraciones | `[x]` hecha |
+| 8 | Pruebas | `[~]` 70 del motor + 13 de personas + 7 de renderizado + 17 de conformidad; falta e2e |
 | 9 | Documentación | `[~]` arquitectura y USI escritos |
 | 10 | Despliegue | `[~]` compose y Makefile funcionando; falta Dockerfile y CI |
 

@@ -55,6 +55,14 @@ export class AgentFactoryService {
     vertical: Vertical;
     /** Semilla de la campaña; si no viene, se usa su id. */
     seed?: string;
+    /**
+     * Peso relativo por persona (id → peso). Sin esto, el reparto es parejo.
+     *
+     * Importa más de lo que parece: en una red social la mayoría lee y unos
+     * pocos publican. Repartir en partes iguales produce un feed donde todos
+     * escriben lo mismo, que no se parece a ninguna comunidad real.
+     */
+    weights?: Record<string, number>;
   }): Promise<Agent[]> {
     const { campaignId, count, personas, vertical } = params;
 
@@ -75,14 +83,16 @@ export class AgentFactoryService {
       ).map((a) => a.handle),
     );
 
+    // El reparto se calcula una vez, antes del bucle: así es determinista y
+    // respeta las proporciones en vez de depender del orden de creación.
+    const asignacion = this.repartir(personas, count, params.weights);
+
     for (let index = 0; index < count; index++) {
       // Semilla por agente: determinista y única dentro de la campaña.
       const seed = `${campaignSeed}:agente:${index}`;
       const rng = new SeededRandom(seed);
 
-      // Reparto redondo de personas: si hay 3 personas y 10 agentes, quedan
-      // 4/3/3 en vez de un reparto al azar que podría dejar una sin usar.
-      const persona = personas[index % personas.length];
+      const persona = asignacion[index];
 
       const identity = this.identity(rng, usedHandles);
       const traits = this.deriveTraits(persona, rng);
@@ -113,6 +123,78 @@ export class AgentFactoryService {
     );
 
     return created;
+  }
+
+  // ─────────────────────────────── reparto ───────────────────────────────
+
+  /**
+   * Decide qué persona le toca a cada agente.
+   *
+   * Con pesos, el reparto es proporcional; sin ellos, parejo. En los dos casos
+   * cada persona recibe al menos un agente mientras el total alcance: un
+   * arquetipo con cero instancias es lo mismo que no haberlo elegido.
+   *
+   * Devuelve un array de largo `count` para que el bucle de creación no tenga
+   * que volver a decidir nada.
+   */
+  private repartir(
+    personas: Persona[],
+    count: number,
+    weights?: Record<string, number>,
+  ): Persona[] {
+    if (personas.length === 0) return [];
+
+    const pesos = personas.map((persona) => {
+      const peso = weights?.[persona.id];
+      return typeof peso === 'number' && peso > 0 ? peso : 1;
+    });
+    const totalPeso = pesos.reduce((suma, peso) => suma + peso, 0);
+
+    // Orden descendente por peso: los sobrantes del redondeo van a las personas
+    // más frecuentes, que es donde menos se nota la desviación.
+    const orden = personas
+      .map((persona, i) => ({ persona, peso: pesos[i] }))
+      .sort((a, b) => b.peso - a.peso);
+
+    // Menos agentes que personas: se eligen las más frecuentes en vez de
+    // pasarse del total intentando dar una a cada una.
+    if (count < orden.length) {
+      return orden.slice(0, count).map((fila) => fila.persona);
+    }
+
+    const cantidades = orden.map((fila) =>
+      Math.max(1, Math.floor((count * fila.peso) / totalPeso)),
+    );
+
+    let asignados = cantidades.reduce((suma, n) => suma + n, 0);
+    for (let i = 0; asignados < count; i++) {
+      cantidades[i % cantidades.length] += 1;
+      asignados += 1;
+    }
+    for (let i = cantidades.length - 1; asignados > count && i >= 0; ) {
+      if (cantidades[i] > 1) {
+        cantidades[i] -= 1;
+        asignados -= 1;
+      } else {
+        i -= 1;
+      }
+    }
+
+    // Se intercalan en vez de agrupar: si los primeros veinte agentes fueran
+    // todos del mismo arquetipo, un corte temprano de la campaña dejaría una
+    // población sesgada.
+    const pilas = cantidades.map((cantidad, i) =>
+      Array.from({ length: cantidad }, () => orden[i].persona),
+    );
+    const resultado: Persona[] = [];
+    for (let ronda = 0; resultado.length < count; ronda++) {
+      for (const pila of pilas) {
+        const persona = pila[ronda];
+        if (persona && resultado.length < count) resultado.push(persona);
+      }
+    }
+
+    return resultado;
   }
 
   // ─────────────────────────────── rasgos ───────────────────────────────

@@ -70,6 +70,7 @@ export class PlannerService {
         personas,
         vertical: campaign.targetApp.vertical,
         seed: run.id,
+        weights: this.readPersonaWeights(campaign.config),
       });
     }
 
@@ -337,6 +338,26 @@ export class PlannerService {
       'messaging.send': 2,
       'users.update': 1,
     };
+  }
+
+  /**
+   * Pesos por persona, si la campaña los trae en su configuración.
+   *
+   * Los packs de `@susp/personas` definen proporciones (en una red social la
+   * mayoría lee y unos pocos publican). Sin esto, el motor repartiría parejo y
+   * se perdería justo lo que hace creíble a la población.
+   */
+  private readPersonaWeights(config: Prisma.JsonValue): Record<string, number> | undefined {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return undefined;
+    const mix = (config as Record<string, unknown>).personaMix;
+    if (!mix || typeof mix !== 'object' || Array.isArray(mix)) return undefined;
+
+    const pesos: Record<string, number> = {};
+    for (const [id, valor] of Object.entries(mix as Record<string, unknown>)) {
+      const peso = Number(valor);
+      if (Number.isFinite(peso) && peso > 0) pesos[id] = peso;
+    }
+    return Object.keys(pesos).length > 0 ? pesos : undefined;
   }
 
   private readRules(persona: Persona | null): BehaviorRule[] {

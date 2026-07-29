@@ -212,7 +212,15 @@ export interface CreateCampaignInput {
   endsAt?: string;
   dryRun?: boolean;
   timeScale?: number;
-  config?: Record<string, unknown>;
+  /**
+   * Configuración libre. La clave que el motor entiende hoy:
+   *
+   * - `personaMix`: `{ [personaId]: peso }`. Reparte los agentes de forma
+   *   proporcional en vez de pareja. Importa: en una red social la mayoría lee
+   *   y unos pocos publican, y un reparto parejo produce un feed donde todos
+   *   escriben lo mismo. Los packs de `@susp/personas` traen las proporciones.
+   */
+  config?: Record<string, unknown> & { personaMix?: Record<string, number> };
 }
 
 export interface Run {
