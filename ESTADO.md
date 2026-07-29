@@ -7,23 +7,36 @@
 
 ## Resumen en una línea
 
-**Fases 1 y 2 cerradas.** El motor arranca, se conecta a PostgreSQL, autentica
-por API key y por JWT, y expone el CRUD completo de apps destino, personas,
-escenarios, campañas, ejecuciones y auditoría. Las salvaguardas de producción y
-el cifrado de credenciales están implementados y verificados contra la API real.
+**Fases 1, 2 y 3 cerradas, y el ciclo completo funciona de punta a punta:** una
+campaña crea agentes con personalidad, los registra en la app destino vía USI,
+los hace publicar, interactuar y mensajearse según su horario y sus rasgos, y
+después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 3 — Motor de agentes IA.
-- **Ya escrito de la Fase 3:** `src/llm/` con la interfaz `LlmProvider`, el
-  `AnthropicProvider`, el `DeterministicProvider` (plantillas sembradas, sin API
-  key), el PRNG `SeededRandom` y el corpus rioplatense.
-- **Próximo paso concreto:** el `AgentsModule` — generar agentes a partir de
-  personas (rasgos con variación individual), memoria con decaimiento, horarios,
-  y el planificador que convierte un `Run` en PENDING en una cola de `Job`.
-  Después, el scheduler con `FOR UPDATE SKIP LOCKED`.
+- **Fase en curso:** Fase 4 — formalizar USI (OpenAPI 3.1 y suite de conformidad).
+  El cliente USI y la app de referencia ya están hechos y probados.
+- **Próximo paso concreto:** `packages/usi-spec` con el OpenAPI 3.1 y los
+  esquemas compartidos, y `packages/usi-conformance` con el CLI que valida
+  cualquier implementación contra el contrato (incluido el marcado sintético,
+  el rechazo de objetivos no sintéticos y el nonce de purga).
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
-  que devolver `{"status":"ok"}`. Después leer `docs/ARQUITECTURA.md` §3 y §4.
+  que devolver `{"status":"ok"}` y `curl localhost:55704/usi/v1/manifest` con el
+  token, el manifiesto de la app de referencia.
+
+## Prueba de punta a punta ya ejecutada
+
+Con la app de referencia (`apps/reference-app`, USI en memoria) como destino:
+
+| Paso | Resultado |
+| --- | --- |
+| Chequeo de salud de la app destino | `HEALTHY`, 7 capacidades detectadas |
+| Campaña de 8 agentes, `timeScale: 180` | 14 usuarios sintéticos creados |
+| Actividad autónoma | 8 actualizaciones de perfil, contenido, interacciones y mensajes |
+| Rechazo de objetivo no sintético | `422 target_not_synthetic` |
+| Purga sin nonce | `403` |
+| Purga con nombre de campaña incorrecto | rechazada |
+| Purga real de la campaña | borró exactamente lo suyo; **la campaña anterior quedó intacta** |
 
 ## Qué se puede hacer hoy
 
@@ -39,8 +52,11 @@ Con `make up` y la API key del seed:
   obligatorios y cachea sus capacidades.
 - **Definir personas y escenarios**, con validación de que la mezcla de acciones
   solo use operaciones USI que existan.
-- **Crear campañas** y arrancarlas: se encola un `Run` en PENDING (el
-  planificador que lo consume llega en la Fase 3).
+- **Crear campañas y correrlas de verdad**: el planificador crea los agentes,
+  el scheduler los ejecuta y los agentes pueblan la app destino solos. Con
+  `timeScale` se acelera el reloj simulado para no esperar el horario real.
+- **Inspeccionar un agente**: sus rasgos, horarios, objetivos y su memoria con
+  la fuerza ya decaída. Es la vista que explica por qué hizo lo que hizo.
 - **Consultar auditoría** y su resumen por operación y resultado.
 - **Purgar** lo generado por una campaña, con doble confirmación.
 
@@ -85,6 +101,14 @@ Con `make up` y la API key del seed:
    `.tsbuildinfo` viejo le hacía creer que ya estaba todo compilado, mientras el
    script había vaciado `dist`. Se desactivó `incremental` en el build.
 6. **`deleteOutDir: true` da EBUSY** cuando `dist` es un punto de montaje.
+7. **ts-node 10.9 no arranca con TypeScript 6** (`Cannot read properties of
+   undefined (reading 'fileExists')`). La app de referencia usa el borrado de
+   tipos nativo de Node 22 (`node src/server.ts`), que además le saca una
+   dependencia a un ejemplo que quiere ser mínimo.
+8. **El planificador daba una campaña por terminada apenas nadie tenía una
+   acción pendiente.** Arrancar de madrugada la cerraba en el acto: los agentes
+   estaban fuera de horario, no habían terminado. Ahora solo cierra cuando todos
+   cumplieron sus objetivos y no queda trabajo en vuelo.
 
 ## Fases
 
@@ -92,12 +116,12 @@ Con `make up` y la API key del seed:
 | --- | --- | --- |
 | 1 | Arquitectura y fundaciones | `[x]` hecha |
 | 2 | Backend: motor central, DB y API Gateway | `[x]` hecha |
-| 3 | Motor de agentes IA | `[~]` en curso (proveedores LLM listos) |
-| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[~]` cliente y tipos listos; falta OpenAPI y conformidad |
+| 3 | Motor de agentes IA | `[x]` hecha |
+| 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[~]` cliente, tipos y app de referencia listos; falta OpenAPI y conformidad |
 | 5 | SDK oficial | `[ ]` pendiente |
 | 6 | Dashboard administrativo | `[ ]` pendiente |
-| 7 | Adaptadores e integraciones | `[ ]` pendiente |
-| 8 | Pruebas | `[~]` 34 unitarios verdes; falta e2e y conformidad |
+| 7 | Adaptadores e integraciones | `[~]` app de referencia lista; faltan los packs por vertical |
+| 8 | Pruebas | `[~]` 61 unitarios verdes; falta e2e y conformidad |
 | 9 | Documentación | `[~]` arquitectura y USI escritos |
 | 10 | Despliegue | `[~]` compose y Makefile funcionando; falta Dockerfile y CI |
 

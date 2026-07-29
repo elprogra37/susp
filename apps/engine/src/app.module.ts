@@ -16,6 +16,9 @@ import { TargetAppsModule } from './target-apps/target-apps.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { RunsModule } from './runs/runs.module';
+import { AgentsModule } from './agents/agents.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { LlmModule } from './llm/llm.module';
 
 @Module({
   imports: [
@@ -33,6 +36,9 @@ import { RunsModule } from './runs/runs.module';
     CatalogModule,
     CampaignsModule,
     RunsModule,
+    LlmModule,
+    AgentsModule,
+    SchedulerModule,
   ],
   providers: [
     // El orden importa: primero se identifica quién es, después se le aplica su cupo.

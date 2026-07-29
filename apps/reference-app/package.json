@@ -3,5 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "App de referencia que implementa USI en memoria."
+  "description": "App de referencia que implementa USI en memoria. Permite correr SUSP de punta a punta sin depender de una app real.",
+  "scripts": {
+    "start": "node src/server.ts",
+    "lint": "tsc --noEmit"
+  },
+  "type": "module"
 }
