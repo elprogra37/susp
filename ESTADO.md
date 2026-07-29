@@ -14,10 +14,9 @@ después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 5 — SDK oficial (`@susp/sdk` y `@susp/usi-server`).
-- **Próximo paso concreto:** `packages/sdk` con el cliente tipado del motor, y
-  `packages/usi-server` con el helper para implementar USI, más la plantilla de
-  Supabase Edge Function. Ambos consumen `@susp/usi-spec`, que ya está hecho.
+- **Fase en curso:** Fase 6 — dashboard administrativo (React + Vite).
+- **Próximo paso concreto:** `apps/dashboard` consumiendo `@susp/sdk`: campañas,
+  métricas, logs, semáforo de estado de las apps USI y purga con confirmación.
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
   que devolver `{"status":"ok"}` y `curl localhost:55704/usi/v1/manifest` con el
   token, el manifiesto de la app de referencia.
@@ -37,6 +36,7 @@ Con la app de referencia (`apps/reference-app`, USI en memoria) como destino:
 | Purga real de la campaña | borró exactamente lo suyo; **la campaña anterior quedó intacta** |
 | Suite de conformidad contra la app de referencia | **17 de 17**, código de salida 0 |
 | Suite contra una app a la que se le quitó el marcado a propósito | **falla y sale con 1**, explicando qué falta |
+| Suite contra una implementación hecha con `@susp/usi-server` | **17 de 17** — el helper produce implementaciones conformes |
 
 ## Qué se puede hacer hoy
 
@@ -122,7 +122,7 @@ Con `make up` y la API key del seed:
 | 2 | Backend: motor central, DB y API Gateway | `[x]` hecha |
 | 3 | Motor de agentes IA | `[x]` hecha |
 | 4 | Estándar USI (OpenAPI, cliente, conformidad) | `[x]` hecha |
-| 5 | SDK oficial | `[ ]` pendiente |
+| 5 | SDK oficial | `[x]` hecha |
 | 6 | Dashboard administrativo | `[ ]` pendiente |
 | 7 | Adaptadores e integraciones | `[~]` app de referencia lista; faltan los packs por vertical |
 | 8 | Pruebas | `[~]` 61 unitarios verdes; falta e2e y conformidad |

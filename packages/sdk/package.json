@@ -1,7 +1,13 @@
 {
   "name": "@susp/sdk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "license": "UNLICENSED",
-  "description": "SDK oficial: cliente tipado del motor SUSP."
+  "description": "SDK oficial de SUSP: cliente tipado del motor.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "lint": "tsc --noEmit" },
+  "dependencies": { "@susp/usi-spec": "*" }
 }
