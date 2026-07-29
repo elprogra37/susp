@@ -1,0 +1,129 @@
+name: CI
+
+# Verificación en cada push y pull request.
+#
+# NOTA IMPORTANTE: este workflow **no sube artifacts** a propósito. La cuenta
+# tiene agotada la cuota de storage de GitHub Actions, y subir artifacts la
+# agrava hasta el punto de que Actions deja de disparar runs (le pasó al
+# repositorio `amor`). Todo lo que hay que ver queda en el log del job.
+#
+# La verificación real es local: `make test-all` corre exactamente lo mismo.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Un push nuevo cancela el run anterior de la misma rama: no tiene sentido
+  # gastar minutos verificando un commit que ya quedó atrás.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: susp
+          POSTGRES_PASSWORD: susp_ci
+          POSTGRES_DB: susp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U susp -d susp"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://susp:susp_ci@localhost:5432/susp?schema=public
+      E2E_ADMIN_URL: postgresql://susp:susp_ci@localhost:5432/postgres
+      E2E_DATABASE_URL: postgresql://susp:susp_ci@localhost:5432/susp_test
+      JWT_SECRET: secreto-de-ci-suficientemente-largo-1234567890
+      # Ninguna prueba necesita una API key: el proveedor determinístico es el
+      # que usan todas, así que la CI no gasta tokens ni depende de un secreto.
+      SUSP_LLM_PROVIDER: deterministic
+      SUSP_SCHEDULER_ENABLED: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci --no-audit --no-fund
+
+      - name: Generar el cliente de Prisma
+        run: npm run prisma:generate --workspace @susp/engine
+
+      - name: Chequeo de tipos
+        run: |
+          for p in packages/usi-spec packages/usi-server packages/sdk \
+                   packages/usi-conformance packages/personas \
+                   apps/engine apps/dashboard; do
+            echo "── $p"
+            (cd "$p" && npx tsc --noEmit)
+          done
+
+      - name: Pruebas unitarias del motor
+        run: npm test --workspace @susp/engine
+
+      - name: Pruebas de los packs de personas
+        run: node --test packages/personas/src/index.spec.ts
+
+      - name: Pruebas de renderizado del dashboard
+        run: npx vitest run --root apps/dashboard
+
+      - name: Pruebas e2e contra PostgreSQL
+        run: npm run test:e2e --workspace @susp/engine
+
+      - name: Compilar el motor
+        run: npm run build --workspace @susp/engine
+
+      - name: Compilar el dashboard
+        run: npm run build --workspace @susp/dashboard
+
+  conformidad:
+    # La suite de conformidad contra la app de referencia: verifica que el
+    # estándar y su implementación de referencia sigan de acuerdo.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Levantar la app de referencia
+        run: |
+          node apps/reference-app/src/server.ts &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:55704/health >/dev/null && break
+            sleep 1
+          done
+        env:
+          PORT: 55704
+          USI_TOKEN: token-de-ci
+
+      - name: Conformidad USI
+        run: |
+          node packages/usi-conformance/src/cli.ts \
+            --url http://localhost:55704/usi/v1 \
+            --token token-de-ci
+        env:
+          NO_COLOR: '1'

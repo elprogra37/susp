@@ -1,88 +1,81 @@
 # Pendientes — SUSP
 
-Lo que falta, ordenado por fase. El estado general está en [ESTADO.md](ESTADO.md).
-
-## Fase 2 — Backend
-
-- [ ] `apps/engine` con NestJS: `main.ts`, `AppModule`, configuración tipada.
-- [ ] `schema.prisma` con el modelo de datos de `docs/ARQUITECTURA.md` §4.
-- [ ] Migración inicial + seed del tenant de bootstrap.
-- [ ] Módulos: `tenants`, `target-apps`, `credentials`, `personas`, `campaigns`,
-      `scenarios`, `agents`, `runs`, `audit`.
-- [ ] Autenticación: API key (cabecera `X-Susp-Key`) y JWT para el dashboard.
-- [ ] RBAC por rol de tenant (`owner`, `operator`, `viewer`).
-- [ ] Límite de tasa por tenant y por app destino.
-- [ ] Cifrado en reposo de `UsiCredential` (AES-256-GCM con clave de entorno).
-- [ ] `/health` con chequeo de base de datos.
-
-## Fase 3 — Motor de agentes
-
-- [ ] Modelo de personalidad (rasgos, tono, verbosidad, tolerancia al riesgo).
-- [ ] Memoria episódica y semántica con decaimiento y recuperación por relevancia.
-- [ ] Objetivos con progreso y criterios de finalización.
-- [ ] Horarios: franjas activas, ritmo, variación por día de la semana.
-- [ ] Motor de reglas de comportamiento (condición → acción).
-- [ ] `LlmProvider` con `AnthropicProvider` y `DeterministicProvider`.
-- [ ] **El adaptador Anthropic no debe enviar `temperature`/`top_p`/`top_k` con
-      `claude-opus-5`** — devuelve `400`. Solo puede mandarlos con `claude-haiku-4-5`.
-- [ ] Manejar `stop_reason: "refusal"` **antes** de leer `content`.
-- [ ] Scheduler con `FOR UPDATE SKIP LOCKED`, backoff exponencial y `dead letter`.
-
-## Fase 4 — USI
-
-- [ ] OpenAPI 3.1 completo en `packages/usi-spec`.
-- [ ] Esquemas de validación compartidos motor ↔ SDK.
-- [ ] Cliente USI: timeout, reintentos, circuit breaker, `Idempotency-Key`, firma HMAC.
-- [ ] Negociación de capacidades desde el manifiesto.
-- [ ] Suite de conformidad con CLI y salida legible.
-
-## Fase 5 — SDK
-
-- [ ] `@susp/sdk`: cliente tipado del motor.
-- [ ] `@susp/usi-server`: helper para implementar USI (Node y Deno).
-- [ ] Plantilla de Supabase Edge Function.
-
-## Fase 6 — Dashboard
-
-- [ ] Campañas: alta, edición, arranque, pausa.
-- [ ] Métricas y gráficos de rendimiento.
-- [ ] Visor de logs y auditoría.
-- [ ] Semáforo de estado de las APIs USI conectadas.
-- [ ] Purga con confirmación escrita.
-
-## Fase 7 — Adaptadores
-
-- [ ] Packs de citas, red social, telemedicina y marketplace.
-- [ ] App de referencia con USI en memoria.
-
-## Fase 8 — Pruebas
-
-- [ ] Unitarios: agentes, scheduler, políticas de seguridad, cliente USI.
-- [ ] E2E de la API contra Postgres en Docker.
-- [ ] Conformidad contra la app de referencia.
-
-## Fase 9 — Documentación
-
-- [ ] README con inicio rápido.
-- [ ] Guía de integración para Flutter + Supabase.
-- [ ] Referencia del SDK.
-- [ ] `docs/SEGURIDAD.md`.
-
-## Fase 10 — Despliegue
-
-- [ ] Dockerfiles multi-stage.
-- [ ] `docker-compose` completo.
-- [ ] Makefile.
-- [ ] Workflow de CI **sin** `upload-artifact` (la cuota de la cuenta está agotada).
+Las diez fases del roadmap están cerradas. Lo que sigue es lo que quedó
+consciente­mente fuera del alcance, más la deuda técnica que vale la pena
+recordar. El estado general está en [ESTADO.md](ESTADO.md).
 
 ---
 
-## Deuda técnica y decisiones a revisar
+## Verificaciones que no se pudieron hacer
 
-- **Cola en Postgres.** Alcanza de sobra para este volumen. Si algún día hace falta
-  más throughput, la interfaz `JobQueue` permite meter Redis/BullMQ sin tocar el
-  motor de agentes.
-- **Avatares procedurales.** La v1 no genera imágenes por IA. Si se quiere, se suma
-  como capacidad opcional del proveedor de contenido.
-- **Rama `develop`.** Arranqué con `main` sola. Si preferís el flujo de dos ramas
-  como en `amor`, se crea `develop` y se cambia la rama por defecto en GitHub.
+- [ ] **Revisión visual del dashboard en un navegador.** La extensión de Chrome
+      no estaba conectada durante el desarrollo. Está verificado que las siete
+      vistas renderizan sin romperse (prueba de humo con Vitest) y que el build
+      de producción compila, pero **nadie miró el resultado a ojo**: el aspecto,
+      el flujo de login y el comportamiento en pantallas chicas están sin
+      confirmar.
+- [ ] **CI ejecutándose de verdad.** El workflow está escrito y sin
+      `upload-artifact`, pero la cuota de storage de Actions de la cuenta está
+      agotada (mismo bloqueo que en `amor`), así que puede no disparar runs. La
+      verificación real es local con `make test-all`.
+- [ ] **Prueba contra una app real del portfolio.** Todo se validó contra la app
+      de referencia. Integrar `nocturna` o `vecinal` de verdad es el siguiente
+      paso natural y el que va a revelar los huecos del estándar.
+
+---
+
+## Fuera del alcance de la v1 (decisiones, no olvidos)
+
+- **Edición visual de escenarios.** Se cargan como JSON. Un editor gráfico tiene
+  sentido recién cuando haya suficientes escenarios como para que armarlos a mano
+  moleste.
+- **Generación de imágenes por IA para los avatares.** La v1 usa avatares
+  procedurales deterministas. Sumar un modelo de imagen agrega costo y una
+  dependencia externa para algo secundario.
+- **Multi-región / varias réplicas del scheduler.** La cola con `SKIP LOCKED` ya
+  soporta varios workers, pero el límite de tasa y los stores de idempotencia del
+  helper son en memoria: con varias instancias hay que moverlos a un store
+  compartido. Está anotado abajo.
+- **Verticales más allá de los cuatro del alcance.** Citas, red social,
+  telemedicina y marketplace cubren el portfolio. Agregar uno es escribir un pack.
+
+---
+
+## Deuda técnica
+
+- [ ] **Límite de tasa en memoria.** `RateLimitGuard` usa un token bucket por
+      proceso. Alcanza para una instancia; con varias réplicas detrás de un
+      balanceador cada una tendría su propio cupo. Mover a Redis si llega ese día.
+- [ ] **Idempotencia y nonces del helper, en memoria por defecto.** Para una
+      Supabase Edge Function con varias instancias hay que pasar los stores
+      respaldados en Postgres — ya están escritos en
+      `packages/usi-server/examples/supabase-edge-function/stores-supabase.ts`,
+      falta que la plantilla los use por defecto en vez de mencionarlos.
+- [ ] **`packages/usi-spec` duplica tipos con `apps/engine/src/usi`.** El motor
+      tiene su propia copia de los tipos USI de cuando el paquete no existía.
+      Debería importarlos del paquete y borrar la copia.
+- [ ] **Cola en Postgres.** Alcanza de sobra para este volumen. La interfaz
+      `JobQueueService` permite meter Redis/BullMQ sin tocar el motor de agentes.
+- [ ] **Rama `develop`.** El repo tiene solo `main`. Si preferís el flujo de dos
+      ramas como en `amor`, se crea `develop` y se cambia la rama por defecto.
+
+---
+
+## Mejoras que valen la pena
+
+- [ ] **Ampliar el corpus del proveedor determinístico.** Con ~10 plantillas por
+      vertical, una campaña de 500 agentes repite texto de forma visible. El test
+      de variedad mide esto (`>20 textos distintos en 40 semillas`); subir el
+      umbral obliga a ampliar el banco.
+- [ ] **Conversaciones con hilo.** Hoy los mensajes son independientes: un agente
+      escribe y otro puede escribir después, pero no hay respuesta encadenada real.
+      La memoria ya guarda con quién habló cada uno; falta que el planificador
+      priorice responder a quien te escribió.
+- [ ] **Reanudar una campaña pausada sin recrear agentes.** Funciona, pero los
+      agentes que ya cumplieron sus objetivos quedan en `EXHAUSTED` para siempre.
+      Un "reiniciar objetivos" sería útil para reusar una población.
+- [ ] **Exportar una simulación.** Poder llevarse el plan y los resultados de una
+      ejecución como JSON, para adjuntarlo a un reporte o reproducirlo después.
+- [ ] **Editar personas desde el dashboard.** Hoy el catálogo es de solo lectura.
+      Tiene más sentido "duplicar y ajustar" que crear desde cero en un
+      formulario, así que conviene hacer eso.

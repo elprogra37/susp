@@ -7,19 +7,25 @@
 
 ## Resumen en una línea
 
-**Fases 1, 2 y 3 cerradas, y el ciclo completo funciona de punta a punta:** una
+**Las diez fases están cerradas y el producto funciona de punta a punta:** una
 campaña crea agentes con personalidad, los registra en la app destino vía USI,
 los hace publicar, interactuar y mensajearse según su horario y sus rasgos, y
 después borra todo lo generado sin tocar nada más.
 
 ## Dónde quedé / próximo paso
 
-- **Fase en curso:** Fase 10 — despliegue (Dockerfiles y CI).
-- **Próximo paso concreto:** Dockerfiles multi-stage para motor y dashboard,
-  compose de producción y workflow de CI **sin** `upload-artifact`, porque la
-  cuota de Actions de la cuenta está agotada.
+- **Roadmap completo.** Lo que sigue no es una fase: es integrar una app real del
+  portfolio (`nocturna` o `vecinal`) siguiendo
+  [docs/INTEGRACION-SUPABASE.md](docs/INTEGRACION-SUPABASE.md). Es lo que va a
+  revelar los huecos que la app de referencia no puede mostrar.
+- **Sin verificar:** el dashboard nunca se miró en un navegador (la extensión de
+  Chrome no estaba conectada). Renderiza y compila, pero el aspecto y el flujo de
+  login están sin confirmar a ojo. Está anotado en
+  [PENDIENTES.md](PENDIENTES.md).
+- **Cómo retomar:** `make up`, después `make test-all`. Si da todo verde, el
+  sistema está sano.
 - **Todo se verifica con un comando:** `make test-all` corre tipos, unitarios,
-  e2e y conformidad — 138 verificaciones, ninguna necesita API key.
+  e2e y conformidad — 143 verificaciones, ninguna necesita API key.
 - **Cómo retomar:** `make up` levanta todo; `curl localhost:55701/health` tiene
   que devolver `{"status":"ok"}` y `curl localhost:55704/usi/v1/manifest` con el
   token, el manifiesto de la app de referencia.
@@ -42,7 +48,10 @@ Con la app de referencia (`apps/reference-app`, USI en memoria) como destino:
 | Suite contra una implementación hecha con `@susp/usi-server` | **17 de 17** — el helper produce implementaciones conformes |
 | Dashboard: renderizado de las 7 vistas | **7 de 7**, sin navegador |
 | Reparto proporcional del pack social (40 agentes) | 57,5 / 20 / 15 / 7,5 contra el objetivo 55 / 22 / 15 / 8 |
-| Batería completa (`make test-all`) | **138 verificaciones en verde**, sin API key |
+| Stack de producción levantado de cero (`docker-compose.prod.yml`) | motor `{"status":"ok"}`, dashboard 200, 16 tablas migradas solas |
+| Endurecimiento de la imagen de producción | corre como `node` (uid 1000), `tini` en PID 1, Postgres **sin puerto publicado** |
+| Apagado ordenado con SIGTERM | log confirmado: `Scheduler detenido por SIGTERM tras 0 ms` |
+| Batería completa (`make test-all`) | **143 verificaciones en verde**, sin API key |
 
 ## Qué se puede hacer hoy
 
@@ -131,9 +140,9 @@ Con `make up` y la API key del seed:
 | 5 | SDK oficial | `[x]` hecha |
 | 6 | Dashboard administrativo | `[x]` hecha |
 | 7 | Adaptadores e integraciones | `[x]` hecha |
-| 8 | Pruebas | `[x]` hecha — 138 verificaciones con `make test-all` |
+| 8 | Pruebas | `[x]` hecha — 143 verificaciones con `make test-all` |
 | 9 | Documentación | `[x]` hecha |
-| 10 | Despliegue | `[~]` compose y Makefile funcionando; falta Dockerfile y CI |
+| 10 | Despliegue | `[x]` hecha — stack de producción levantado y verificado |
 
 ## Comandos
 

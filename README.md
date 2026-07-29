@@ -160,12 +160,13 @@ make reset       # borra todo y reconstruye desde cero
 
 ## Estado
 
-**Fases 1 a 8 de 10 completadas.** El ciclo completo funciona de punta a punta:
+**Las diez fases del roadmap están completadas.** El ciclo completo funciona de
+punta a punta:
 una campaña crea agentes con personalidad, los registra en la app destino vía
 USI, los hace publicar, interactuar y mensajearse según su horario y sus rasgos,
 y después borra todo lo generado sin tocar nada más.
 
-`make test-all` corre **138 verificaciones** —tipos, unitarias, e2e contra
+`make test-all` corre **143 verificaciones** —tipos, unitarias, e2e contra
 PostgreSQL real y conformidad USI— y ninguna necesita una API key de Anthropic:
 el proveedor por defecto genera contenido con plantillas sembradas, gratis y
 reproducible.
@@ -183,6 +184,7 @@ Detalle en [ESTADO.md](ESTADO.md); lo que falta, en [PENDIENTES.md](PENDIENTES.m
 | [docs/SEGURIDAD.md](docs/SEGURIDAD.md) | Las salvaguardas y por qué cada una está donde está |
 | [docs/INTEGRACION-SUPABASE.md](docs/INTEGRACION-SUPABASE.md) | Integrar una app Flutter + Supabase, paso a paso |
 | [docs/SDK.md](docs/SDK.md) | Referencia del SDK |
+| [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) | Desarrollo, producción, CI y resolución de problemas |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Las 10 fases y qué entrega cada una |
 | [ESTADO.md](ESTADO.md) | Dónde quedó el desarrollo y cómo retomarlo |
 

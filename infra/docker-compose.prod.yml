@@ -1,0 +1,78 @@
+name: susp-prod
+
+# Compose de producción: imágenes construidas, sin bind mounts, sin puertos de
+# base expuestos al exterior.
+#
+#   docker compose -f infra/docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Diferencias con el de desarrollo, y por qué:
+#   · El código va dentro de la imagen, no montado. Un despliegue es una imagen
+#     inmutable, no una carpeta que alguien puede editar en caliente.
+#   · Postgres no publica su puerto: solo se llega desde la red interna.
+#   · Todo secreto viene del entorno, sin valores por defecto. Si falta uno, el
+#     servicio no arranca — que es lo correcto: un secreto por defecto en
+#     producción es peor que un arranque fallido.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?falta POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-susp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-susp}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    # Sin `ports`: la base no se expone fuera de la red de compose.
+
+  engine:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.engine
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-susp}?schema=public
+      SUSP_API_PORT: 55701
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET}
+      # En producción es obligatoria y distinta de JWT_SECRET, para poder rotar
+      # las credenciales cifradas sin invalidar las sesiones.
+      SUSP_ENCRYPTION_KEY: ${SUSP_ENCRYPTION_KEY:?falta SUSP_ENCRYPTION_KEY}
+      SUSP_LLM_PROVIDER: ${SUSP_LLM_PROVIDER:-deterministic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUSP_LLM_MODEL_REASONING: ${SUSP_LLM_MODEL_REASONING:-claude-opus-5}
+      SUSP_LLM_MODEL_CONTENT: ${SUSP_LLM_MODEL_CONTENT:-claude-haiku-4-5}
+      # La salvaguarda de producción queda activa salvo decisión explícita.
+      SUSP_BLOCK_PRODUCTION_TARGETS: ${SUSP_BLOCK_PRODUCTION_TARGETS:-true}
+      SUSP_DRY_RUN: ${SUSP_DRY_RUN:-false}
+      SUSP_SCHEDULER_ENABLED: ${SUSP_SCHEDULER_ENABLED:-true}
+      SUSP_CORS_ORIGIN: ${SUSP_CORS_ORIGIN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '${SUSP_API_PORT:-55701}:55701'
+    # El scheduler necesita terminar el trabajo en curso antes de irse.
+    stop_grace_period: 30s
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.dashboard
+      args:
+        VITE_SUSP_API_URL: ${VITE_SUSP_API_URL:?falta VITE_SUSP_API_URL}
+    restart: always
+    depends_on:
+      - engine
+    ports:
+      - '${SUSP_DASHBOARD_PORT:-55703}:55703'
+
+volumes:
+  pgdata:

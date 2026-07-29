@@ -28,6 +28,9 @@ import { ExecutorService } from './executor.service';
  */
 @Injectable()
 export class SchedulerService implements OnModuleInit, OnApplicationShutdown {
+  /** Cuánto se espera al lote en curso durante el apagado. Ver onApplicationShutdown. */
+  private static readonly ESPERA_APAGADO_MS = 15_000;
+
   private readonly logger = new Logger(SchedulerService.name);
   private readonly workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
 
@@ -57,11 +60,44 @@ export class SchedulerService implements OnModuleInit, OnApplicationShutdown {
     this.schedule(0);
   }
 
-  onApplicationShutdown(): void {
+  /**
+   * Apagado ordenado: deja de tomar trabajo nuevo y espera a que termine el lote
+   * en curso.
+   *
+   * La espera no es cosmética. Nest cierra los módulos en orden y PrismaService
+   * se desconecta en su `onModuleDestroy`; si volviéramos acá sin esperar, un
+   * `tick()` a mitad de camino se quedaría sin base de datos y los trabajos que
+   * ya tomó quedarían en RUNNING hasta que el barrido de huérfanos los recupere,
+   * cinco minutos después.
+   *
+   * El tope es holgado contra el `stop_grace_period: 30s` del compose: si a los
+   * quince segundos el lote sigue vivo, algo se colgó y es mejor irse —el barrido
+   * de huérfanos lo va a recuperar— que dejar que Docker mate el proceso con
+   * SIGKILL, que es lo mismo pero sin log.
+   */
+  async onApplicationShutdown(señal?: string): Promise<void> {
     this.stopping = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (!this.config.scheduler.enabled) return;
+
+    const desde = Date.now();
+    while (this.running && Date.now() - desde < SchedulerService.ESPERA_APAGADO_MS) {
+      await new Promise((listo) => setTimeout(listo, 100));
+    }
+
+    const tardanza = Date.now() - desde;
+    if (this.running) {
+      this.logger.warn(
+        `Scheduler apagado por ${señal ?? 'señal'} con un lote todavía en curso ` +
+          `tras ${tardanza} ms. Los trabajos tomados los recupera el barrido de huérfanos.`,
+      );
+    } else {
+      this.logger.log(
+        `Scheduler detenido por ${señal ?? 'señal'} tras ${tardanza} ms; sin trabajo en curso.`,
+      );
     }
   }
 

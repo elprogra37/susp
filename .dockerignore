@@ -1,0 +1,49 @@
+# Todo lo que no debe viajar al demonio de Docker como contexto de build.
+#
+# Sin esto, `docker build` sube ~500 MB de node_modules en cada build, aunque el
+# Dockerfile no los use: el contexto se transfiere entero antes de ejecutar la
+# primera instrucción. Con este archivo, el contexto queda en unos pocos MB.
+
+node_modules
+**/node_modules
+
+# Salidas de compilación: la imagen las genera adentro.
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Secretos. Que un .env se cuele en una imagen es una forma silenciosa de
+# publicar credenciales.
+.env
+.env.*
+!.env.example
+
+# Git y CI
+.git
+.github
+.gitignore
+
+# Documentación y desarrollo: no cambian el comportamiento de la imagen, pero
+# invalidarían la caché de capas al editarlos.
+docs
+*.md
+!README.md
+Makefile
+scripts
+
+# Pruebas
+**/*.spec.ts
+**/*.e2e-spec.ts
+apps/engine/test
+coverage
+
+# Editores y SO
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Datos locales
+exports
+tmp
