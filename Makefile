@@ -55,8 +55,17 @@ dev: ## Motor con recarga en caliente (más lento de arrancar)
 	docker run --rm -it --network susp_default $(ENGINEV) -w /app/apps/engine \
 	  -e DATABASE_URL="$(DB_URL)" -p 55701:55701 node:22-alpine npm run start:dev
 
-test: ## Corre la batería de pruebas
+test: ## Pruebas unitarias del motor
 	$(ENGINE) npm test
+
+test-all: ## Batería completa: tipos, unitarios, e2e y conformidad USI
+	docker run --rm --network susp_default $(ENGINEV) -w /app node:22-alpine sh scripts/pruebas.sh
+
+test-e2e: ## Solo los e2e (necesita Postgres levantado)
+	docker run --rm --network susp_default $(ENGINEV) -w /app/apps/engine  -e DATABASE_URL="postgresql://susp:susp_local_dev@postgres:5432/susp_test"  -e JWT_SECRET="secreto-de-pruebas-suficientemente-largo-1234567890"  node:22-alpine npx jest --config ./test/jest-e2e.json --runInBand --forceExit
+
+conformance: ## Valida una implementación USI:  make conformance url=... token=...
+	docker run --rm --network susp_default $(VOLUMES) -w /app/packages/usi-conformance  node:22-alpine node src/cli.ts --url $(url) --token $(token)
 
 lint: ## Chequeo de tipos
 	$(ENGINE) npx tsc --noEmit
@@ -72,6 +81,9 @@ migrate-create: ## Crea una migración:  make migrate-create name=agregar_x
 
 seed: ## Siembra tenant, usuario dueño y API key
 	$(ENGINEDB) npm run seed
+
+sembrar: ## Siembra los packs de personas y escenarios:  make sembrar key=<api-key>
+	docker run --rm --network susp_default $(VOLUMES) -w /app/packages/personas  -e SUSP_URL="http://engine:55701/api/v1" -e SUSP_API_KEY="$(key)"  node:22-alpine node scripts/sembrar.ts
 
 psql: ## Abre una consola de PostgreSQL
 	$(COMPOSE) exec postgres psql -U susp -d susp
