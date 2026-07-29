@@ -37,3 +37,4 @@ exports/
 # Salida de build (vive en un volumen de Docker)
 apps/engine/dist/
 *.tsbuildinfo
+apps/dashboard/dist/
